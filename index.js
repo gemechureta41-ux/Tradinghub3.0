@@ -17,10 +17,10 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const bot = new Telegraf(BOT_TOKEN);
 
-// User registration state management in-memory
+// Active user sessions memory
 const userSteps = {};
 
-// Background safe-saver (Non-blocking)
+// Non-blocking background saver
 function saveUserData(userId, dataObj) {
     supabase.from('students').upsert({
         telegram_id: userId,
@@ -30,8 +30,9 @@ function saveUserData(userId, dataObj) {
     }).catch(e => console.error("Supabase Exception:", e));
 }
 
-// Helper function to sanitize and validate phone numbers
+// Ultra-flexible Ethiopian phone sanitizer & validator
 function normalizePhoneNumber(text) {
+    if (!text) return null;
     let cleaned = text.replace(/[\s\-\+\(\)]/g, '');
     if (cleaned.startsWith('251')) {
         cleaned = '0' + cleaned.slice(3);
@@ -61,7 +62,7 @@ bot.start(async (ctx) => {
             return ctx.reply("🎉 Your payment was previously verified! You already have access to the VIP Channel.");
         }
     } catch (err) {
-        console.log("New user starting...");
+        console.log("New registration starting...");
     }
 
     const welcomeText = `
@@ -149,7 +150,6 @@ bot.on('text', async (ctx) => {
 
     let session = userSteps[userId];
 
-    // Fallback check from database if session lost
     if (!session || !session.step) {
         try {
             const { data: dbUser } = await supabase.from('students').select('*').eq('telegram_id', userId).single();
@@ -162,7 +162,7 @@ bot.on('text', async (ctx) => {
 
     if (!session || !session.step) return;
 
-    // STEP 1: Name Input
+    // STEP 1: Full Name
     if (session.step === 'AWAITING_NAME') {
         if (text.length < 3) {
             return ctx.reply("❌ Please enter a valid full name.");
@@ -171,12 +171,12 @@ bot.on('text', async (ctx) => {
         userSteps[userId] = { ...userSteps[userId], full_name: text, step: 'AWAITING_PHONE' };
         saveUserData(userId, { full_name: text, step: 'AWAITING_PHONE' });
 
-        return ctx.replyWithHTML("📱 Please enter your <b>Phone Number</b> (e.g., 0912345678 or 0712345678):", Markup.inlineKeyboard([
+        return ctx.replyWithHTML("📱 Please enter your <b>Phone Number</b> (e.g., 0917091612 or 0717120607):", Markup.inlineKeyboard([
             [Markup.button.callback('🔙 Back', 'start_reg_back')]
         ]));
     }
 
-    // STEP 2: Phone Input
+    // STEP 2: Phone Number Validation
     else if (session.step === 'AWAITING_PHONE') {
         const validPhone = normalizePhoneNumber(text);
         if (!validPhone) {
@@ -192,7 +192,7 @@ bot.on('text', async (ctx) => {
         ]));
     }
 
-    // STEP 3: TxID Input
+    // STEP 3: Transaction ID
     else if (session.step === 'AWAITING_TXID') {
         if (text.length < 5) {
             return ctx.reply("❌ Transaction ID is too short. Please enter a valid Transaction ID.");
@@ -268,7 +268,7 @@ bot.on('photo', async (ctx) => {
 });
 
 // ==========================================
-// 6. ADMIN APPROVAL & LINK SENT
+// 6. ADMIN APPROVAL & ONE-TIME VIP LINK
 // ==========================================
 bot.action(/approve_(.+)/, async (ctx) => {
     const userId = ctx.match[1];
@@ -284,7 +284,8 @@ bot.action(/approve_(.+)/, async (ctx) => {
         const successMessage = `
 🎉 <b>PAYMENT SUCCESSFUL & CONFIRMED!</b>
 
-Congratulations! Your payment has been successfully verified.
+Congratulations!
+Your payment has been successfully verified in our records.
 
 Welcome to <b>PriceAction SMC VIP Master Class</b>!
 
@@ -292,28 +293,30 @@ Welcome to <b>PriceAction SMC VIP Master Class</b>!
 ✅ Payment Verified  
 ✅ VIP Access Ready  
 
-👉 <b>Your VIP Channel Invite Link:</b>
+👉 <b>Your Exclusive VIP Channel Invite Link:</b>
 ${inviteLink.invite_link}
 
-<i>Note: This link can only be used ONCE. Please join immediately!</i>
+<i>Note: This link is unique and can only be used ONCE. Please join immediately!</i>
+
+<i>Learn. Analyze. Trade.</i>
 `;
         await ctx.telegram.sendMessage(userId, successMessage, { parse_mode: 'HTML' });
         await ctx.editMessageCaption((ctx.callbackQuery.message.caption || "") + "\n\nSTATUS: ✅ <b>CONFIRMED & LINK SENT</b>", { parse_mode: 'HTML' });
     } catch (err) {
         console.error("Approval error:", err);
-        ctx.reply("❌ Error approving user. Check if Bot is Admin in VIP Channel!");
+        ctx.reply("❌ Error approving user. Make sure the Bot is set as an Admin in the VIP Channel with 'Invite Users via Link' permission!");
     }
 });
 
 bot.action(/reject_(.+)/, async (ctx) => {
     const userId = ctx.match[1];
     saveUserData(userId, { status: 'Rejected' });
-    await ctx.telegram.sendMessage(userId, "❌ <b>PAYMENT REJECTED!</b>\n\nYour payment could not be verified. Please try again by typing /start.");
+    await ctx.telegram.sendMessage(userId, "❌ <b>PAYMENT REJECTED!</b>\n\nYour payment could not be verified in our records. Please make sure to enter a valid Transaction ID and Payment Screenshot by typing /start.");
     await ctx.editMessageCaption((ctx.callbackQuery.message.caption || "") + "\n\nSTATUS: ❌ <b>REJECTED</b>", { parse_mode: 'HTML' });
 });
 
 // ==========================================
-// 7. SERVER LAUNCH
+// 7. EXPRESS SERVER
 // ==========================================
 const app = express();
 app.use(express.json());
