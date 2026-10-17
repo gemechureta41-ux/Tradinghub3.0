@@ -31,6 +31,24 @@ async function saveUserData(userId, dataObj) {
     }
 }
 
+// Helper function to sanitize and validate phone numbers
+function normalizePhoneNumber(text) {
+    // Remove spaces, dashes, plus signs, brackets
+    let cleaned = text.replace(/[\s\-\+\(\)]/g, '');
+    
+    // Convert +2519... or 2519... to 09...
+    if (cleaned.startsWith('251')) {
+        cleaned = '0' + cleaned.slice(3);
+    }
+
+    // Check if it's a valid 10-digit Ethiopian number starting with 09 or 07
+    const phoneRegex = /^(09|07)\d{8}\$/;
+    if (phoneRegex.test(cleaned)) {
+        return cleaned;
+    }
+    return null;
+}
+
 // ==========================================
 // 1. START COMMAND
 // ==========================================
@@ -160,15 +178,15 @@ bot.on('text', async (ctx) => {
         ]));
     }
 
-    // STEP 2: Phone Input
+    // STEP 2: Phone Input (Smart Phone Sanitizer)
     else if (session.step === 'AWAITING_PHONE') {
-        const phoneRegex = /^(09|07)\d{8}\$/;
-        if (!phoneRegex.test(text)) {
-            return ctx.reply("❌ Invalid phone number! Please enter a 10-digit number starting with 09 or 07.");
+        const validPhone = normalizePhoneNumber(text);
+        if (!validPhone) {
+            return ctx.reply("❌ Invalid phone number! Please enter a valid 10-digit Ethiopian number starting with 09 or 07.");
         }
 
-        userSteps[userId] = { ...userSteps[userId], phone_number: text, step: 'AWAITING_PAYMENT_METHOD' };
-        await saveUserData(userId, { phone_number: text, step: 'AWAITING_PAYMENT_METHOD' });
+        userSteps[userId] = { ...userSteps[userId], phone_number: validPhone, step: 'AWAITING_PAYMENT_METHOD' };
+        await saveUserData(userId, { phone_number: validPhone, step: 'AWAITING_PAYMENT_METHOD' });
 
         return ctx.replyWithHTML("💳 Please select your preferred <b>Payment Method</b> for the course fee of <b>3,599 ETB</b>:", Markup.inlineKeyboard([
             [Markup.button.callback('📲 Telebirr', 'pay_telebirr'), Markup.button.callback('📲 M-Pesa', 'pay_mpesa')],
