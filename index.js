@@ -34,11 +34,11 @@ bot.start(async (ctx) => {
     }
 
     const welcomeText = `
-🔥 **WELCOME TO PRICEACTION_SMC FX!** 🔥
+🔥 <b>WELCOME TO PRICEACTION SMC FX!</b> 🔥
 
 Welcome to our VIP Forex Master Class!
 
-📚 **What You Will Learn:**
+📚 <b>What You Will Learn:</b>
 • Price Action Strategies
 • Smart Money Concepts (SMC)
 • Risk Management Strict Rules
@@ -47,7 +47,7 @@ Welcome to our VIP Forex Master Class!
 
 To register for our VIP Master Class, click the button below.
 `;
-    ctx.replyWithMarkdown(welcomeText, Markup.inlineKeyboard([
+    ctx.replyWithHTML(welcomeText, Markup.inlineKeyboard([
         [Markup.button.callback('📝 REGISTER NOW', 'start_registration')]
     ]));
 });
@@ -64,7 +64,7 @@ bot.action('start_registration', async (ctx) => {
         status: 'Registering'
     }, { onConflict: 'telegram_id' });
 
-    ctx.reply("📝 Please enter your **Full Name**:", Markup.inlineKeyboard([
+    ctx.replyWithHTML("📝 Please enter your <b>Full Name</b>:", Markup.inlineKeyboard([
         [Markup.button.callback('❌ Cancel Registration', 'cancel_reg')]
     ]));
 });
@@ -77,17 +77,17 @@ bot.action('cancel_reg', async (ctx) => {
 
 bot.action('back_to_name', async (ctx) => {
     await supabase.from('students').update({ step: 'AWAITING_NAME' }).eq('telegram_id', ctx.from.id);
-    ctx.editMessageText("📝 Please re-enter your **Full Name**:");
+    ctx.editMessageText("📝 Please re-enter your Full Name:");
 });
 
 bot.action('start_reg_back', async (ctx) => {
     await supabase.from('students').update({ step: 'AWAITING_NAME' }).eq('telegram_id', ctx.from.id);
-    ctx.editMessageText("📝 Please enter your **Full Name**:");
+    ctx.editMessageText("📝 Please enter your Full Name:");
 });
 
 bot.action('back_to_txid', async (ctx) => {
     await supabase.from('students').update({ step: 'AWAITING_TXID' }).eq('telegram_id', ctx.from.id);
-    ctx.editMessageText("📝 Please re-enter your payment **Transaction ID**:");
+    ctx.editMessageText("📝 Please re-enter your payment Transaction ID:");
 });
 
 bot.on('text', async (ctx) => {
@@ -108,23 +108,25 @@ bot.on('text', async (ctx) => {
         }
         await supabase.from('students').update({ full_name: text, step: 'AWAITING_PHONE' }).eq('telegram_id', userId);
         
-        return ctx.reply("📱 Please enter your **Phone Number** (e.g., 0912345678):", Markup.inlineKeyboard([
+        return ctx.replyWithHTML("📱 Please enter your <b>Phone Number</b> (e.g., 0912345678):", Markup.inlineKeyboard([
             [Markup.button.callback('🔙 Back', 'start_reg_back')]
         ]));
     }
+
     else if (student.step === 'AWAITING_PHONE') {
-        const phoneRegex = /^(09|07)\d{8}$/;
+        const phoneRegex = /^(09|07)\d{8}\$/;
         if (!phoneRegex.test(text)) {
             return ctx.reply("❌ Invalid phone number! Please enter a 10-digit number starting with 09 or 07.");
         }
 
         await supabase.from('students').update({ phone_number: text, step: 'AWAITING_PAYMENT_METHOD' }).eq('telegram_id', userId);
 
-        return ctx.reply("💳 Please select your preferred **Payment Method**:", Markup.inlineKeyboard([
+        return ctx.replyWithHTML("💳 Please select your preferred <b>Payment Method</b>:", Markup.inlineKeyboard([
             [Markup.button.callback('📲 Telebirr', 'pay_telebirr'), Markup.button.callback('📲 M-Pesa', 'pay_mpesa')],
             [Markup.button.callback('🔙 Back', 'back_to_name')]
         ]));
     }
+
     else if (student.step === 'AWAITING_TXID') {
         if (text.length < 5) {
             return ctx.reply("❌ Transaction ID is too short. Please enter a valid Transaction ID.");
@@ -142,7 +144,7 @@ bot.on('text', async (ctx) => {
 
         await supabase.from('students').update({ transaction_id: text, step: 'AWAITING_SCREENSHOT' }).eq('telegram_id', userId);
 
-        return ctx.reply("🖼️ Thank you! Now please send an image/photo of your **Payment Screenshot**:", Markup.inlineKeyboard([
+        return ctx.replyWithHTML("🖼️ Thank you! Now please send an image/photo of your <b>Payment Screenshot</b>:", Markup.inlineKeyboard([
             [Markup.button.callback('🔙 Back', 'back_to_txid')]
         ]));
     }
@@ -150,7 +152,7 @@ bot.on('text', async (ctx) => {
 
 bot.action('back_to_method', async (ctx) => {
     await supabase.from('students').update({ step: 'AWAITING_PAYMENT_METHOD' }).eq('telegram_id', ctx.from.id);
-    ctx.editMessageText("💳 Please select your preferred **Payment Method**:", Markup.inlineKeyboard([
+    ctx.editMessageText("💳 Please select your preferred Payment Method:", Markup.inlineKeyboard([
         [Markup.button.callback('📲 Telebirr', 'pay_telebirr'), Markup.button.callback('📲 M-Pesa', 'pay_mpesa')]
     ]));
 });
@@ -168,10 +170,10 @@ bot.action(['pay_telebirr', 'pay_mpesa'], async (ctx) => {
     }).eq('telegram_id', userId);
 
     const paymentInfo = method === 'Telebirr' 
-        ? `📲 **Telebirr Payment Details:**\n• Account Number: \`0917091612\`\n• Account Name: **Gemechu**\n• Price: **3,599 ETB**`
-        : `📲 **M-Pesa Payment Details:**\n• Account Number: \`0717120607\`\n• Account Name: **Gemechu**\n• Price: **3,599 ETB**`;
+        ? `📲 <b>Telebirr Payment Details:</b>\n• Account Number: <code>0917091612</code>\n• Account Name: <b>Gemechu</b>\n• Price: <b>3,599 ETB</b>`
+        : `📲 <b>M-Pesa Payment Details:</b>\n• Account Number: <code>0717120607</code>\n• Account Name: <b>Gemechu</b>\n• Price: <b>3,599 ETB</b>`;
 
-    ctx.replyWithMarkdown(`\${paymentInfo}\n\nAfter completing your payment, please reply below with your **Transaction ID**:`, Markup.inlineKeyboard([
+    ctx.replyWithHTML(`${paymentInfo}\n\nAfter completing your payment, please reply below with your <b>Transaction ID</b>:`, Markup.inlineKeyboard([
         [Markup.button.callback('🔙 Back', 'back_to_method')]
     ]));
 });
@@ -193,7 +195,7 @@ bot.on('photo', async (ctx) => {
     }
 
     const photoId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
-    const username = ctx.from.username ? `@\${ctx.from.username}` : (ctx.from.first_name || "User");
+    const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || "User");
 
     await supabase.from('students').update({
         username: username,
@@ -202,11 +204,11 @@ bot.on('photo', async (ctx) => {
         step: 'COMPLETED'
     }).eq('telegram_id', userId);
 
-    ctx.reply("⏳ **Payment Pending:**\nYour payment submission is currently under review. Your Transaction ID and proof of payment will be verified shortly. Once approved by the Admin, your VIP access link will be sent automatically!");
+    ctx.replyWithHTML("⏳ <b>Payment Pending:</b>\nYour payment submission is currently under review. Your Transaction ID and proof of payment will be verified shortly. Once approved by the Admin, your VIP access link will be sent automatically!");
 
     await ctx.telegram.sendPhoto(ADMIN_ID, photoId, {
-        caption: `📩 **NEW PAYMENT SUBMITTED FOR VERIFICATION!**\n\n👤 **Full Name:** ${student.full_name}\n🔗 **Username:** ${username}\n📱 **Phone:** ${student.phone_number}\n💳 **Method:** ${student.payment_method}\n📝 **TxID:** \`${student.transaction_id}\``,
-        parse_mode: 'Markdown',
+        caption: `📩 <b>NEW PAYMENT SUBMITTED FOR VERIFICATION!</b>\n\n👤 <b>Full Name:</b> ${student.full_name}\n🔗 <b>Username:</b> ${username}\n📱 <b>Phone:</b> ${student.phone_number}\n💳 <b>Method:</b> ${student.payment_method}\n📝 <b>TxID:</b> <code>${student.transaction_id}</code>`,
+        parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
             [
                 Markup.button.callback('✅ Approve (Confirm)', `approve_${userId}`),
@@ -231,23 +233,23 @@ bot.action(/approve_(.+)/, async (ctx) => {
         });
 
         const successMessage = `
-🎉 **PAYMENT SUCCESSFUL!**
+🎉 <b>PAYMENT SUCCESSFUL!</b>
 
 Congratulations!
 Your payment has been verified successfully.
 
-Welcome to **PriceAction_SMC VIP Master Class**!
+Welcome to <b>PriceAction SMC VIP Master Class</b>!
 
 ✅ Registration Completed  
 ✅ Payment Verified  
 ✅ VIP Access Ready  
 
-👉 **VIP Channel Invite Link:** ${inviteLink.invite_link}
+👉 <b>VIP Channel Invite Link:</b> ${inviteLink.invite_link}
 
-*Learn. Analyze. Trade.*
+<i>Learn. Analyze. Trade.</i>
 `;
-        await ctx.telegram.sendMessage(userId, successMessage, { parse_mode: 'Markdown' });
-        await ctx.editMessageCaption((ctx.callbackQuery.message.caption || "") + "\n\nSTATUS: ✅ **CONFIRMED**", { parse_mode: 'Markdown' });
+        await ctx.telegram.sendMessage(userId, successMessage, { parse_mode: 'HTML' });
+        await ctx.editMessageCaption((ctx.callbackQuery.message.caption || "") + "\n\nSTATUS: ✅ <b>CONFIRMED</b>", { parse_mode: 'HTML' });
     } catch (err) {
         console.error(err);
         ctx.reply("❌ Error approving student access.");
@@ -258,8 +260,8 @@ bot.action(/reject_(.+)/, async (ctx) => {
     const userId = ctx.match[1];
     
     await supabase.from('students').update({ status: 'Rejected' }).eq('telegram_id', userId);
-    await ctx.telegram.sendMessage(userId, "❌ **PAYMENT REJECTED!**\n\nYour payment could not be verified in our records. Please make sure to provide a valid Transaction ID and Payment Screenshot by typing /start.");
-    await ctx.editMessageCaption((ctx.callbackQuery.message.caption || "") + "\n\nSTATUS: ❌ **REJECTED**", { parse_mode: 'Markdown' });
+    await ctx.telegram.sendMessage(userId, "❌ <b>PAYMENT REJECTED!</b>\n\nYour payment could not be verified in our records. Please make sure to provide a valid Transaction ID and Payment Screenshot by typing /start.");
+    await ctx.editMessageCaption((ctx.callbackQuery.message.caption || "") + "\n\nSTATUS: ❌ <b>REJECTED</b>", { parse_mode: 'HTML' });
 });
 
 // ==========================================
