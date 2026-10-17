@@ -23,14 +23,18 @@ const bot = new Telegraf(BOT_TOKEN);
 bot.start(async (ctx) => {
     const userId = ctx.from.id;
 
-    const { data: existing } = await supabase
-        .from('students')
-        .select('*')
-        .eq('telegram_id', userId)
-        .single();
+    try {
+        const { data: existing } = await supabase
+            .from('students')
+            .select('*')
+            .eq('telegram_id', userId)
+            .single();
 
-    if (existing && existing.status === 'Confirmed') {
-        return ctx.reply("🎉 Your payment was previously verified! You already have access to the VIP Channel.");
+        if (existing && existing.status === 'Confirmed') {
+            return ctx.reply("🎉 Your payment was previously verified! You already have access to the VIP Channel.");
+        }
+    } catch (err) {
+        console.log("New user starting...");
     }
 
     const welcomeText = `
@@ -44,6 +48,8 @@ Welcome to our VIP Forex Master Class!
 • Risk Management Strict Rules
 • Trading Psychology & Mindset
 • Weekly Live Trading Sessions
+
+💰 <b>Course Fee:</b> 3,599 ETB
 
 To register for our VIP Master Class, click the button below.
 `;
@@ -90,75 +96,95 @@ bot.action('back_to_txid', async (ctx) => {
     ctx.editMessageText("📝 Please re-enter your payment Transaction ID:");
 });
 
-bot.on('text', async (ctx) => {
-    const userId = ctx.from.id;
-    const text = ctx.message.text.trim();
-
-    const { data: student } = await supabase
-        .from('students')
-        .select('*')
-        .eq('telegram_id', userId)
-        .single();
-
-    if (!student || !student.step) return;
-
-    if (student.step === 'AWAITING_NAME') {
-        if (text.length < 3) {
-            return ctx.reply("❌ Please enter a valid full name.");
-        }
-        await supabase.from('students').update({ full_name: text, step: 'AWAITING_PHONE' }).eq('telegram_id', userId);
-        
-        return ctx.replyWithHTML("📱 Please enter your <b>Phone Number</b> (e.g., 0912345678):", Markup.inlineKeyboard([
-            [Markup.button.callback('🔙 Back', 'start_reg_back')]
-        ]));
-    }
-
-    else if (student.step === 'AWAITING_PHONE') {
-        const phoneRegex = /^(09|07)\d{8}\$/;
-        if (!phoneRegex.test(text)) {
-            return ctx.reply("❌ Invalid phone number! Please enter a 10-digit number starting with 09 or 07.");
-        }
-
-        await supabase.from('students').update({ phone_number: text, step: 'AWAITING_PAYMENT_METHOD' }).eq('telegram_id', userId);
-
-        return ctx.replyWithHTML("💳 Please select your preferred <b>Payment Method</b>:", Markup.inlineKeyboard([
-            [Markup.button.callback('📲 Telebirr', 'pay_telebirr'), Markup.button.callback('📲 M-Pesa', 'pay_mpesa')],
-            [Markup.button.callback('🔙 Back', 'back_to_name')]
-        ]));
-    }
-
-    else if (student.step === 'AWAITING_TXID') {
-        if (text.length < 5) {
-            return ctx.reply("❌ Transaction ID is too short. Please enter a valid Transaction ID.");
-        }
-
-        const { data: existingTx } = await supabase
-            .from('students')
-            .select('*')
-            .eq('transaction_id', text)
-            .single();
-
-        if (existingTx) {
-            return ctx.reply("⚠️ This Transaction ID has already been registered! Please check and enter the correct Transaction ID.");
-        }
-
-        await supabase.from('students').update({ transaction_id: text, step: 'AWAITING_SCREENSHOT' }).eq('telegram_id', userId);
-
-        return ctx.replyWithHTML("🖼️ Thank you! Now please send an image/photo of your <b>Payment Screenshot</b>:", Markup.inlineKeyboard([
-            [Markup.button.callback('🔙 Back', 'back_to_txid')]
-        ]));
-    }
-});
-
 bot.action('back_to_method', async (ctx) => {
     await supabase.from('students').update({ step: 'AWAITING_PAYMENT_METHOD' }).eq('telegram_id', ctx.from.id);
     ctx.editMessageText("💳 Please select your preferred Payment Method:", Markup.inlineKeyboard([
-        [Markup.button.callback('📲 Telebirr', 'pay_telebirr'), Markup.button.callback('📲 M-Pesa', 'pay_mpesa')]
+        [Markup.button.callback('📲 Telebirr', 'pay_telebirr'), Markup.button.callback('📲 M-Pesa', 'pay_mpesa')],
+        [Markup.button.callback('🔙 Back', 'back_to_name')]
     ]));
 });
 
 // ==========================================
-// 3. PAYMENT METHOD SELECTION
+// 3. TEXT INPUT HANDLER (Name, Phone, TxID)
+// ==========================================
+bot.on('text', async (ctx) => {
+    const userId = ctx.from.id;
+    const text = ctx.message.text.trim();
+
+    try {
+        const { data: student, error: fetchErr } = await supabase
+            .from('students')
+            .select('*')
+            .eq('telegram_id', userId)
+            .single();
+
+        if (fetchErr || !student || !student.step) return;
+
+        // STEP 1: Full Name
+        if (student.step === 'AWAITING_NAME') {
+            if (text.length < 3) {
+                return ctx.reply("❌ Please enter a valid full name.");
+            }
+
+            const { error: updateErr } = await supabase
+                .from('students')
+                .update({ full_name: text, step: 'AWAITING_PHONE' })
+                .eq('telegram_id', userId);
+
+            if (updateErr) {
+                console.error("Database error updating name:", updateErr);
+                return ctx.reply("❌ Error saving name. Please try /start again.");
+            }
+            
+            return ctx.replyWithHTML("📱 Please enter your <b>Phone Number</b> (e.g., 0912345678 or 0712345678):", Markup.inlineKeyboard([
+                [Markup.button.callback('🔙 Back', 'start_reg_back')]
+            ]));
+        }
+
+        // STEP 2: Phone Number
+        else if (student.step === 'AWAITING_PHONE') {
+            const phoneRegex = /^(09|07)\d{8}\$/;
+            if (!phoneRegex.test(text)) {
+                return ctx.reply("❌ Invalid phone number! Please enter a 10-digit number starting with 09 or 07.");
+            }
+
+            await supabase.from('students').update({ phone_number: text, step: 'AWAITING_PAYMENT_METHOD' }).eq('telegram_id', userId);
+
+            return ctx.replyWithHTML("💳 Please select your preferred <b>Payment Method</b> for the course fee of <b>3,599 ETB</b>:", Markup.inlineKeyboard([
+                [Markup.button.callback('📲 Telebirr', 'pay_telebirr'), Markup.button.callback('📲 M-Pesa', 'pay_mpesa')],
+                [Markup.button.callback('🔙 Back', 'back_to_name')]
+            ]));
+        }
+
+        // STEP 3: Transaction ID
+        else if (student.step === 'AWAITING_TXID') {
+            if (text.length < 5) {
+                return ctx.reply("❌ Transaction ID is too short. Please enter a valid Transaction ID.");
+            }
+
+            const { data: existingTx } = await supabase
+                .from('students')
+                .select('*')
+                .eq('transaction_id', text)
+                .single();
+
+            if (existingTx) {
+                return ctx.reply("⚠️ This Transaction ID has already been registered! Please check and enter the correct Transaction ID.");
+            }
+
+            await supabase.from('students').update({ transaction_id: text, step: 'AWAITING_SCREENSHOT' }).eq('telegram_id', userId);
+
+            return ctx.replyWithHTML("🖼️ Thank you! Now please send an image/photo of your <b>Payment Screenshot</b>:", Markup.inlineKeyboard([
+                [Markup.button.callback('🔙 Back', 'back_to_txid')]
+            ]));
+        }
+    } catch (err) {
+        console.error("Error in text handler:", err);
+    }
+});
+
+// ==========================================
+// 4. PAYMENT METHOD SELECTION
 // ==========================================
 bot.action(['pay_telebirr', 'pay_mpesa'], async (ctx) => {
     const userId = ctx.from.id;
@@ -179,7 +205,7 @@ bot.action(['pay_telebirr', 'pay_mpesa'], async (ctx) => {
 });
 
 // ==========================================
-// 4. SCREENSHOT SUBMISSION & VERIFICATION
+// 5. SCREENSHOT SUBMISSION & VERIFICATION
 // ==========================================
 bot.on('photo', async (ctx) => {
     const userId = ctx.from.id;
@@ -219,7 +245,7 @@ bot.on('photo', async (ctx) => {
 });
 
 // ==========================================
-// 5. ADMIN APPROVAL & VIP LINK GENERATION
+// 6. ADMIN APPROVAL & ONE-TIME VIP LINK GENERATION
 // ==========================================
 bot.action(/approve_(.+)/, async (ctx) => {
     const userId = ctx.match[1];
@@ -227,16 +253,17 @@ bot.action(/approve_(.+)/, async (ctx) => {
     try {
         await supabase.from('students').update({ status: 'Confirmed' }).eq('telegram_id', userId);
 
+        // Single-use invite link generation (1-time use only)
         const inviteLink = await ctx.telegram.createChatInviteLink(VIP_CHANNEL_ID, {
-            expire_date: Math.floor(Date.now() / 1000) + 86400,
-            member_limit: 1
+            expire_date: Math.floor(Date.now() / 1000) + 86400, // 24 hours validity
+            member_limit: 1 // Single-use constraint
         });
 
         const successMessage = `
-🎉 <b>PAYMENT SUCCESSFUL!</b>
+🎉 <b>PAYMENT SUCCESSFUL & CONFIRMED!</b>
 
 Congratulations!
-Your payment has been verified successfully.
+Your payment has been successfully verified.
 
 Welcome to <b>PriceAction SMC VIP Master Class</b>!
 
@@ -244,15 +271,18 @@ Welcome to <b>PriceAction SMC VIP Master Class</b>!
 ✅ Payment Verified  
 ✅ VIP Access Ready  
 
-👉 <b>VIP Channel Invite Link:</b> ${inviteLink.invite_link}
+👉 <b>One-Time VIP Channel Invite Link:</b>
+${inviteLink.invite_link}
+
+<i>Note: This link can only be used ONCE. Please join immediately!</i>
 
 <i>Learn. Analyze. Trade.</i>
 `;
         await ctx.telegram.sendMessage(userId, successMessage, { parse_mode: 'HTML' });
-        await ctx.editMessageCaption((ctx.callbackQuery.message.caption || "") + "\n\nSTATUS: ✅ <b>CONFIRMED</b>", { parse_mode: 'HTML' });
+        await ctx.editMessageCaption((ctx.callbackQuery.message.caption || "") + "\n\nSTATUS: ✅ <b>CONFIRMED (Approved & Link Sent)</b>", { parse_mode: 'HTML' });
     } catch (err) {
-        console.error(err);
-        ctx.reply("❌ Error approving student access.");
+        console.error("Approval error:", err);
+        ctx.reply("❌ Error approving student access. Make sure the Bot is an Admin in the VIP Channel with 'Invite Users via Link' permission!");
     }
 });
 
@@ -265,29 +295,13 @@ bot.action(/reject_(.+)/, async (ctx) => {
 });
 
 // ==========================================
-// 6. EXPRESS SERVER & ADMIN API
+// 7. EXPRESS SERVER
 // ==========================================
 const app = express();
 app.use(express.json());
 
 app.get('/', (req, res) => {
     res.send('PriceAction SMC FX Bot is running 24/7!');
-});
-
-app.get('/admin/stats', async (req, res) => {
-    const { data: students, error } = await supabase.from('students').select('*');
-    if (error) return res.status(500).json(error);
-
-    const stats = {
-        total_registered_students: students.length,
-        total_confirmed_payments: students.filter(s => s.status === 'Confirmed').length,
-        pending_payments: students.filter(s => s.status === 'Pending').length,
-        rejected_payments: students.filter(s => s.status === 'Rejected').length,
-        telebirr_payments: students.filter(s => s.payment_method === 'Telebirr').length,
-        mpesa_payments: students.filter(s => s.payment_method === 'M-Pesa').length
-    };
-
-    res.json(stats);
 });
 
 const PORT = process.env.PORT || 3000;
