@@ -17,31 +17,25 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const bot = new Telegraf(BOT_TOKEN);
 
-// User registration state management
+// User registration state management in-memory
 const userSteps = {};
 
-async function saveUserData(userId, dataObj) {
-    try {
-        await supabase.from('students').upsert({
-            telegram_id: userId,
-            ...dataObj
-        }, { onConflict: 'telegram_id' });
-    } catch (e) {
-        console.error("Supabase Save Error:", e);
-    }
+// Background safe-saver (Non-blocking)
+function saveUserData(userId, dataObj) {
+    supabase.from('students').upsert({
+        telegram_id: userId,
+        ...dataObj
+    }, { onConflict: 'telegram_id' }).then(({ error }) => {
+        if (error) console.error("Supabase Save Error:", error.message);
+    }).catch(e => console.error("Supabase Exception:", e));
 }
 
 // Helper function to sanitize and validate phone numbers
 function normalizePhoneNumber(text) {
-    // Remove spaces, dashes, plus signs, brackets
     let cleaned = text.replace(/[\s\-\+\(\)]/g, '');
-    
-    // Convert +2519... or 2519... to 09...
     if (cleaned.startsWith('251')) {
         cleaned = '0' + cleaned.slice(3);
     }
-
-    // Check if it's a valid 10-digit Ethiopian number starting with 09 or 07
     const phoneRegex = /^(09|07)\d{8}\$/;
     if (phoneRegex.test(cleaned)) {
         return cleaned;
@@ -98,7 +92,7 @@ bot.action('start_registration', async (ctx) => {
     const userId = ctx.from.id;
     userSteps[userId] = { step: 'AWAITING_NAME' };
 
-    await saveUserData(userId, { step: 'AWAITING_NAME', status: 'Registering' });
+    saveUserData(userId, { step: 'AWAITING_NAME', status: 'Registering' });
 
     ctx.replyWithHTML("📝 Please enter your <b>Full Name</b>:", Markup.inlineKeyboard([
         [Markup.button.callback('❌ Cancel Registration', 'cancel_reg')]
@@ -108,14 +102,14 @@ bot.action('start_registration', async (ctx) => {
 bot.action('cancel_reg', async (ctx) => {
     const userId = ctx.from.id;
     userSteps[userId] = null;
-    await supabase.from('students').delete().eq('telegram_id', userId);
+    saveUserData(userId, { step: 'CANCELLED' });
     ctx.editMessageText("❌ Your registration has been canceled. Type /start to try again.");
 });
 
 bot.action('start_reg_back', async (ctx) => {
     const userId = ctx.from.id;
     userSteps[userId] = { step: 'AWAITING_NAME' };
-    await saveUserData(userId, { step: 'AWAITING_NAME' });
+    saveUserData(userId, { step: 'AWAITING_NAME' });
     ctx.editMessageText("📝 Please enter your Full Name:");
 });
 
@@ -123,7 +117,7 @@ bot.action('back_to_name', async (ctx) => {
     const userId = ctx.from.id;
     if (!userSteps[userId]) userSteps[userId] = {};
     userSteps[userId].step = 'AWAITING_NAME';
-    await saveUserData(userId, { step: 'AWAITING_NAME' });
+    saveUserData(userId, { step: 'AWAITING_NAME' });
     ctx.editMessageText("📝 Please re-enter your Full Name:");
 });
 
@@ -131,7 +125,7 @@ bot.action('back_to_txid', async (ctx) => {
     const userId = ctx.from.id;
     if (!userSteps[userId]) userSteps[userId] = {};
     userSteps[userId].step = 'AWAITING_TXID';
-    await saveUserData(userId, { step: 'AWAITING_TXID' });
+    saveUserData(userId, { step: 'AWAITING_TXID' });
     ctx.editMessageText("📝 Please re-enter your payment Transaction ID:");
 });
 
@@ -139,7 +133,7 @@ bot.action('back_to_method', async (ctx) => {
     const userId = ctx.from.id;
     if (!userSteps[userId]) userSteps[userId] = {};
     userSteps[userId].step = 'AWAITING_PAYMENT_METHOD';
-    await saveUserData(userId, { step: 'AWAITING_PAYMENT_METHOD' });
+    saveUserData(userId, { step: 'AWAITING_PAYMENT_METHOD' });
     ctx.editMessageText("💳 Please select your preferred Payment Method for <b>3,599 ETB</b>:", Markup.inlineKeyboard([
         [Markup.button.callback('📲 Telebirr', 'pay_telebirr'), Markup.button.callback('📲 M-Pesa', 'pay_mpesa')],
         [Markup.button.callback('🔙 Back', 'back_to_name')]
@@ -154,12 +148,16 @@ bot.on('text', async (ctx) => {
     const text = ctx.message.text.trim();
 
     let session = userSteps[userId];
+
+    // Fallback check from database if session lost
     if (!session || !session.step) {
-        const { data: dbUser } = await supabase.from('students').select('*').eq('telegram_id', userId).single();
-        if (dbUser && dbUser.step) {
-            session = { step: dbUser.step, ...dbUser };
-            userSteps[userId] = session;
-        }
+        try {
+            const { data: dbUser } = await supabase.from('students').select('*').eq('telegram_id', userId).single();
+            if (dbUser && dbUser.step) {
+                session = { step: dbUser.step, ...dbUser };
+                userSteps[userId] = session;
+            }
+        } catch(e) {}
     }
 
     if (!session || !session.step) return;
@@ -171,14 +169,14 @@ bot.on('text', async (ctx) => {
         }
 
         userSteps[userId] = { ...userSteps[userId], full_name: text, step: 'AWAITING_PHONE' };
-        await saveUserData(userId, { full_name: text, step: 'AWAITING_PHONE' });
+        saveUserData(userId, { full_name: text, step: 'AWAITING_PHONE' });
 
         return ctx.replyWithHTML("📱 Please enter your <b>Phone Number</b> (e.g., 0912345678 or 0712345678):", Markup.inlineKeyboard([
             [Markup.button.callback('🔙 Back', 'start_reg_back')]
         ]));
     }
 
-    // STEP 2: Phone Input (Smart Phone Sanitizer)
+    // STEP 2: Phone Input
     else if (session.step === 'AWAITING_PHONE') {
         const validPhone = normalizePhoneNumber(text);
         if (!validPhone) {
@@ -186,7 +184,7 @@ bot.on('text', async (ctx) => {
         }
 
         userSteps[userId] = { ...userSteps[userId], phone_number: validPhone, step: 'AWAITING_PAYMENT_METHOD' };
-        await saveUserData(userId, { phone_number: validPhone, step: 'AWAITING_PAYMENT_METHOD' });
+        saveUserData(userId, { phone_number: validPhone, step: 'AWAITING_PAYMENT_METHOD' });
 
         return ctx.replyWithHTML("💳 Please select your preferred <b>Payment Method</b> for the course fee of <b>3,599 ETB</b>:", Markup.inlineKeyboard([
             [Markup.button.callback('📲 Telebirr', 'pay_telebirr'), Markup.button.callback('📲 M-Pesa', 'pay_mpesa')],
@@ -200,18 +198,8 @@ bot.on('text', async (ctx) => {
             return ctx.reply("❌ Transaction ID is too short. Please enter a valid Transaction ID.");
         }
 
-        const { data: existingTx } = await supabase
-            .from('students')
-            .select('*')
-            .eq('transaction_id', text)
-            .single();
-
-        if (existingTx) {
-            return ctx.reply("⚠️ This Transaction ID has already been registered! Please check and enter the correct Transaction ID.");
-        }
-
         userSteps[userId] = { ...userSteps[userId], transaction_id: text, step: 'AWAITING_SCREENSHOT' };
-        await saveUserData(userId, { transaction_id: text, step: 'AWAITING_SCREENSHOT' });
+        saveUserData(userId, { transaction_id: text, step: 'AWAITING_SCREENSHOT' });
 
         return ctx.replyWithHTML("🖼️ Thank you! Now please send an image/photo of your <b>Payment Screenshot</b>:", Markup.inlineKeyboard([
             [Markup.button.callback('🔙 Back', 'back_to_txid')]
@@ -230,7 +218,7 @@ bot.action(['pay_telebirr', 'pay_mpesa'], async (ctx) => {
     userSteps[userId].payment_method = method;
     userSteps[userId].step = 'AWAITING_TXID';
 
-    await saveUserData(userId, { payment_method: method, step: 'AWAITING_TXID' });
+    saveUserData(userId, { payment_method: method, step: 'AWAITING_TXID' });
 
     const paymentInfo = method === 'Telebirr' 
         ? `📲 <b>Telebirr Payment Details:</b>\n• Account Number: <code>0917091612</code>\n• Account Name: <b>Gemechu</b>\n• Price: <b>3,599 ETB</b>`
@@ -246,19 +234,17 @@ bot.action(['pay_telebirr', 'pay_mpesa'], async (ctx) => {
 // ==========================================
 bot.on('photo', async (ctx) => {
     const userId = ctx.from.id;
-    const session = userSteps[userId];
+    const session = userSteps[userId] || {};
 
     const photoId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
     const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || "User");
 
-    const { data: student } = await supabase.from('students').select('*').eq('telegram_id', userId).single();
+    const fullName = session.full_name || "User";
+    const phone = session.phone_number || "N/A";
+    const payMethod = session.payment_method || "N/A";
+    const txId = session.transaction_id || "N/A";
 
-    const fullName = (session && session.full_name) || (student && student.full_name) || "User";
-    const phone = (session && session.phone_number) || (student && student.phone_number) || "N/A";
-    const payMethod = (session && session.payment_method) || (student && student.payment_method) || "N/A";
-    const txId = (session && session.transaction_id) || (student && student.transaction_id) || "N/A";
-
-    await saveUserData(userId, {
+    saveUserData(userId, {
         username: username,
         screenshot_file_id: photoId,
         status: 'Pending',
@@ -288,7 +274,7 @@ bot.action(/approve_(.+)/, async (ctx) => {
     const userId = ctx.match[1];
 
     try {
-        await saveUserData(userId, { status: 'Confirmed' });
+        saveUserData(userId, { status: 'Confirmed' });
 
         const inviteLink = await ctx.telegram.createChatInviteLink(VIP_CHANNEL_ID, {
             expire_date: Math.floor(Date.now() / 1000) + 86400,
@@ -321,13 +307,13 @@ ${inviteLink.invite_link}
 
 bot.action(/reject_(.+)/, async (ctx) => {
     const userId = ctx.match[1];
-    await saveUserData(userId, { status: 'Rejected' });
+    saveUserData(userId, { status: 'Rejected' });
     await ctx.telegram.sendMessage(userId, "❌ <b>PAYMENT REJECTED!</b>\n\nYour payment could not be verified. Please try again by typing /start.");
     await ctx.editMessageCaption((ctx.callbackQuery.message.caption || "") + "\n\nSTATUS: ❌ <b>REJECTED</b>", { parse_mode: 'HTML' });
 });
 
 // ==========================================
-// 7. SERVER
+// 7. SERVER LAUNCH
 // ==========================================
 const app = express();
 app.use(express.json());
