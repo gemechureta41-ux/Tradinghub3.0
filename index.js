@@ -30,20 +30,6 @@ function saveUserData(userId, dataObj) {
     }).catch(e => console.error("Supabase Exception:", e));
 }
 
-// Ultra-flexible Ethiopian phone sanitizer & validator
-function normalizePhoneNumber(text) {
-    if (!text) return null;
-    let cleaned = text.replace(/[\s\-\+\(\)]/g, '');
-    if (cleaned.startsWith('251')) {
-        cleaned = '0' + cleaned.slice(3);
-    }
-    const phoneRegex = /^(09|07)\d{8}\$/;
-    if (phoneRegex.test(cleaned)) {
-        return cleaned;
-    }
-    return null;
-}
-
 // ==========================================
 // 1. START COMMAND
 // ==========================================
@@ -142,7 +128,7 @@ bot.action('back_to_method', async (ctx) => {
 });
 
 // ==========================================
-// 3. TEXT HANDLER (Name, Phone, TxID)
+// 3. TEXT HANDLER (Name & TxID Only)
 // ==========================================
 bot.on('text', async (ctx) => {
     const userId = ctx.from.id;
@@ -162,29 +148,14 @@ bot.on('text', async (ctx) => {
 
     if (!session || !session.step) return;
 
-    // STEP 1: Full Name
+    // STEP 1: Full Name Input -> Directly goes to Payment Method Selection
     if (session.step === 'AWAITING_NAME') {
         if (text.length < 3) {
             return ctx.reply("❌ Please enter a valid full name.");
         }
 
-        userSteps[userId] = { ...userSteps[userId], full_name: text, step: 'AWAITING_PHONE' };
-        saveUserData(userId, { full_name: text, step: 'AWAITING_PHONE' });
-
-        return ctx.replyWithHTML("📱 Please enter your <b>Phone Number</b> (e.g., 0917091612 or 0717120607):", Markup.inlineKeyboard([
-            [Markup.button.callback('🔙 Back', 'start_reg_back')]
-        ]));
-    }
-
-    // STEP 2: Phone Number Validation
-    else if (session.step === 'AWAITING_PHONE') {
-        const validPhone = normalizePhoneNumber(text);
-        if (!validPhone) {
-            return ctx.reply("❌ Invalid phone number! Please enter a valid 10-digit Ethiopian number starting with 09 or 07.");
-        }
-
-        userSteps[userId] = { ...userSteps[userId], phone_number: validPhone, step: 'AWAITING_PAYMENT_METHOD' };
-        saveUserData(userId, { phone_number: validPhone, step: 'AWAITING_PAYMENT_METHOD' });
+        userSteps[userId] = { ...userSteps[userId], full_name: text, step: 'AWAITING_PAYMENT_METHOD' };
+        saveUserData(userId, { full_name: text, step: 'AWAITING_PAYMENT_METHOD' });
 
         return ctx.replyWithHTML("💳 Please select your preferred <b>Payment Method</b> for the course fee of <b>3,599 ETB</b>:", Markup.inlineKeyboard([
             [Markup.button.callback('📲 Telebirr', 'pay_telebirr'), Markup.button.callback('📲 M-Pesa', 'pay_mpesa')],
@@ -192,7 +163,7 @@ bot.on('text', async (ctx) => {
         ]));
     }
 
-    // STEP 3: Transaction ID
+    // STEP 2: Transaction ID Input
     else if (session.step === 'AWAITING_TXID') {
         if (text.length < 5) {
             return ctx.reply("❌ Transaction ID is too short. Please enter a valid Transaction ID.");
@@ -230,7 +201,7 @@ bot.action(['pay_telebirr', 'pay_mpesa'], async (ctx) => {
 });
 
 // ==========================================
-// 5. SCREENSHOT SUBMISSION
+// 5. SCREENSHOT SUBMISSION (PENDING)
 // ==========================================
 bot.on('photo', async (ctx) => {
     const userId = ctx.from.id;
@@ -240,7 +211,6 @@ bot.on('photo', async (ctx) => {
     const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || "User");
 
     const fullName = session.full_name || "User";
-    const phone = session.phone_number || "N/A";
     const payMethod = session.payment_method || "N/A";
     const txId = session.transaction_id || "N/A";
 
@@ -253,10 +223,12 @@ bot.on('photo', async (ctx) => {
 
     userSteps[userId] = null;
 
+    // Response to user: VIP Link is NOT sent here
     ctx.replyWithHTML("⏳ <b>Payment Pending Verification:</b>\nYour payment submission is currently under review. Once approved by the Admin, your VIP access link will be sent automatically!");
 
+    // Send verification request to Admin
     await ctx.telegram.sendPhoto(ADMIN_ID, photoId, {
-        caption: `📩 <b>NEW PAYMENT SUBMITTED!</b>\n\n👤 <b>Full Name:</b> ${fullName}\n🔗 <b>Username:</b> ${username}\n📱 <b>Phone:</b> ${phone}\n💳 <b>Method:</b> ${payMethod}\n📝 <b>TxID:</b> <code>${txId}</code>`,
+        caption: `📩 <b>NEW PAYMENT SUBMITTED FOR VERIFICATION!</b>\n\n👤 <b>Full Name:</b> ${fullName}\n🔗 <b>Username:</b> ${username}\n💳 <b>Method:</b> ${payMethod}\n📝 <b>TxID:</b> <code>${txId}</code>`,
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
             [
@@ -268,7 +240,7 @@ bot.on('photo', async (ctx) => {
 });
 
 // ==========================================
-// 6. ADMIN APPROVAL & ONE-TIME VIP LINK
+// 6. ADMIN APPROVAL -> SENDS VIP LINK
 // ==========================================
 bot.action(/approve_(.+)/, async (ctx) => {
     const userId = ctx.match[1];
@@ -276,6 +248,7 @@ bot.action(/approve_(.+)/, async (ctx) => {
     try {
         saveUserData(userId, { status: 'Confirmed' });
 
+        // Generate One-Time VIP Channel Link
         const inviteLink = await ctx.telegram.createChatInviteLink(VIP_CHANNEL_ID, {
             expire_date: Math.floor(Date.now() / 1000) + 86400,
             member_limit: 1
@@ -316,7 +289,7 @@ bot.action(/reject_(.+)/, async (ctx) => {
 });
 
 // ==========================================
-// 7. EXPRESS SERVER
+// 7. EXPRESS SERVER LAUNCH
 // ==========================================
 const app = express();
 app.use(express.json());
