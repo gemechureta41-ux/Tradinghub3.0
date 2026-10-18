@@ -148,7 +148,7 @@ bot.on('text', async (ctx) => {
 
     if (!session || !session.step) return;
 
-    // STEP 1: Full Name Input -> Directly goes to Payment Method Selection
+    // STEP 1: Full Name Input -> Goes to Payment Method
     if (session.step === 'AWAITING_NAME') {
         if (text.length < 3) {
             return ctx.reply("❌ Please enter a valid full name.");
@@ -195,7 +195,7 @@ bot.action(['pay_telebirr', 'pay_mpesa'], async (ctx) => {
         ? `📲 <b>Telebirr Payment Details:</b>\n• Account Number: <code>0917091612</code>\n• Account Name: <b>Gemechu</b>\n• Price: <b>3,599 ETB</b>`
         : `📲 <b>M-Pesa Payment Details:</b>\n• Account Number: <code>0717120607</code>\n• Account Name: <b>Gemechu</b>\n• Price: <b>3,599 ETB</b>`;
 
-    ctx.replyWithHTML(`${paymentInfo}\n\nAfter completing your payment, please reply below with your <b>Transaction ID</b>:`, Markup.inlineKeyboard([
+    ctx.replyWithHTML(`${paymentInfo}\n\nAfter completing your payment, please reply below with your <b>Transaction ID</b> and send the <b>Payment Screenshot</b>:`, Markup.inlineKeyboard([
         [Markup.button.callback('🔙 Back', 'back_to_method')]
     ]));
 });
@@ -223,10 +223,8 @@ bot.on('photo', async (ctx) => {
 
     userSteps[userId] = null;
 
-    // Response to user: VIP Link is NOT sent here
     ctx.replyWithHTML("⏳ <b>Payment Pending Verification:</b>\nYour payment submission is currently under review. Once approved by the Admin, your VIP access link will be sent automatically!");
 
-    // Send verification request to Admin
     await ctx.telegram.sendPhoto(ADMIN_ID, photoId, {
         caption: `📩 <b>NEW PAYMENT SUBMITTED FOR VERIFICATION!</b>\n\n👤 <b>Full Name:</b> ${fullName}\n🔗 <b>Username:</b> ${username}\n💳 <b>Method:</b> ${payMethod}\n📝 <b>TxID:</b> <code>${txId}</code>`,
         parse_mode: 'HTML',
@@ -248,7 +246,6 @@ bot.action(/approve_(.+)/, async (ctx) => {
     try {
         saveUserData(userId, { status: 'Confirmed' });
 
-        // Generate One-Time VIP Channel Link
         const inviteLink = await ctx.telegram.createChatInviteLink(VIP_CHANNEL_ID, {
             expire_date: Math.floor(Date.now() / 1000) + 86400,
             member_limit: 1
